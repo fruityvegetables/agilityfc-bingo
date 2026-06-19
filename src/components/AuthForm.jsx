@@ -132,6 +132,8 @@ export default function AuthForm() {
 
           <TurnstileWidget
             ref={turnstileRef}
+            trigger="submit"
+            context="auth"
             token={turnstileToken}
             status={captchaStatus}
             resetSignal={turnstileReset}

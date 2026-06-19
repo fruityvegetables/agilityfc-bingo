@@ -9,13 +9,43 @@ const TURNSTILE_ERROR_HINTS = {
   '300': 'Challenge failed — try another browser or disable extensions.',
 };
 
+const HINTS = {
+  auth: {
+    idle:
+      'Fill in username and password, then click Log In / Sign Up — captcha runs at submit time.',
+    verifying: 'Complete the captcha check…',
+    ready: 'Captcha verified — submitting…',
+  },
+  game: {
+    idle: 'Complete captcha to enable the button.',
+    verifying: 'Complete the captcha check…',
+    ready: 'Captcha ready — submit now.',
+  },
+  gameSubmit: {
+    idle: 'Fill in the form, then click the button — captcha runs at submit time.',
+    verifying: 'Complete the captcha check…',
+    ready: 'Captcha verified — submitting…',
+  },
+};
+
 const TurnstileWidget = forwardRef(function TurnstileWidget(
-  { onToken, onExpire, resetSignal = 0, token = '', status = 'idle' },
+  {
+    onToken,
+    onExpire,
+    resetSignal = 0,
+    token = '',
+    status = 'idle',
+    /** `auto` = captcha on load (host/join). `submit` = captcha when parent calls execute() (login/signup). */
+    trigger = 'auto',
+    context = 'game',
+  },
   ref
 ) {
   const turnstileRef = useRef(null);
   const [widgetError, setWidgetError] = useState('');
   const { turnstileSiteKey, hasTurnstile } = getAppConfig();
+  const runOnSubmit = trigger === 'submit';
+  const hintSet = HINTS[runOnSubmit ? (context === 'auth' ? 'auth' : 'gameSubmit') : 'game'];
 
   useImperativeHandle(ref, () => ({
     execute: () => turnstileRef.current?.execute(),
@@ -61,11 +91,10 @@ const TurnstileWidget = forwardRef(function TurnstileWidget(
     turnstileRef.current?.reset();
   };
 
-  const hintByStatus = {
-    idle: 'Fill in your details, then click Log In / Sign Up — captcha runs at submit time.',
-    verifying: 'Complete the captcha check…',
-    ready: 'Captcha verified — submitting…',
-  };
+  const hint =
+    token && status === 'idle' && !runOnSubmit
+      ? hintSet.ready
+      : hintSet[status] || hintSet.idle;
 
   return (
     <div className="turnstile-wrap">
@@ -82,22 +111,21 @@ const TurnstileWidget = forwardRef(function TurnstileWidget(
         }}
         onError={(code) => {
           clearToken();
-          const hint = TURNSTILE_ERROR_HINTS[code] || TURNSTILE_ERROR_HINTS[String(code).slice(0, 3)];
-          setWidgetError(hint || `Turnstile error ${code}. Check hostname and site key.`);
+          const hintMsg =
+            TURNSTILE_ERROR_HINTS[code] || TURNSTILE_ERROR_HINTS[String(code).slice(0, 3)];
+          setWidgetError(hintMsg || `Turnstile error ${code}. Check hostname and site key.`);
           onExpire?.();
         }}
         options={{
           theme: 'dark',
           size: 'normal',
-          execution: 'execute',
+          execution: runOnSubmit ? 'execute' : 'render',
           appearance: 'always',
           refreshExpired: 'auto',
         }}
       />
       {widgetError && <p className="form-message error turnstile-error">{widgetError}</p>}
-      <p className={`hint turnstile-hint ${token ? 'turnstile-ready' : ''}`}>
-        {hintByStatus[status] || hintByStatus.idle}
-      </p>
+      <p className={`hint turnstile-hint ${token ? 'turnstile-ready' : ''}`}>{hint}</p>
     </div>
   );
 });
