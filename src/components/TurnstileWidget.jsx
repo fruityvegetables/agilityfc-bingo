@@ -1,8 +1,37 @@
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Turnstile } from '@marsidev/react-turnstile';
-import { isDemoMode } from '../lib/config.js';
+import { getAppConfig, isDemoMode } from '../lib/config.js';
 
-export default function TurnstileWidget({ onToken, onExpire }) {
-  const siteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY;
+const TURNSTILE_ERROR_HINTS = {
+  '110200': 'Domain not authorized — add this site under Turnstile → Hostname Management.',
+  '110100': 'Invalid site key — check VITE_TURNSTILE_SITE_KEY matches your Turnstile widget.',
+  '200500': 'Turnstile iframe blocked — allow challenges.cloudflare.com (ad blocker?).',
+  '300': 'Challenge failed — try another browser or disable extensions.',
+};
+
+const TurnstileWidget = forwardRef(function TurnstileWidget(
+  { onToken, onExpire, resetSignal = 0, token = '', status = 'idle' },
+  ref
+) {
+  const turnstileRef = useRef(null);
+  const [widgetError, setWidgetError] = useState('');
+  const { turnstileSiteKey, hasTurnstile } = getAppConfig();
+
+  useImperativeHandle(ref, () => ({
+    execute: () => turnstileRef.current?.execute(),
+    reset: () => {
+      onToken('');
+      setWidgetError('');
+      turnstileRef.current?.reset();
+    },
+  }));
+
+  useEffect(() => {
+    if (resetSignal === 0) return;
+    onToken('');
+    setWidgetError('');
+    turnstileRef.current?.reset();
+  }, [resetSignal, onToken]);
 
   if (isDemoMode()) {
     return (
@@ -18,25 +47,59 @@ export default function TurnstileWidget({ onToken, onExpire }) {
     );
   }
 
-  if (!siteKey) {
+  if (!hasTurnstile) {
     return (
       <p className="form-message error">
-        Turnstile site key missing. Set VITE_TURNSTILE_SITE_KEY for captcha protection.
+        Turnstile site key missing. Set <code>VITE_TURNSTILE_SITE_KEY</code> in Cloudflare Pages
+        environment variables and redeploy.
       </p>
     );
   }
 
+  const clearToken = () => {
+    onToken('');
+    turnstileRef.current?.reset();
+  };
+
+  const hintByStatus = {
+    idle: 'Fill in your details, then click Log In / Sign Up — captcha runs at submit time.',
+    verifying: 'Complete the captcha check…',
+    ready: 'Captcha verified — submitting…',
+  };
+
   return (
     <div className="turnstile-wrap">
       <Turnstile
-        siteKey={siteKey}
-        onSuccess={onToken}
+        ref={turnstileRef}
+        siteKey={turnstileSiteKey}
+        onSuccess={(value) => {
+          setWidgetError('');
+          onToken(value);
+        }}
         onExpire={() => {
-          onToken('');
+          clearToken();
           onExpire?.();
         }}
-        options={{ theme: 'dark', size: 'flexible' }}
+        onError={(code) => {
+          clearToken();
+          const hint = TURNSTILE_ERROR_HINTS[code] || TURNSTILE_ERROR_HINTS[String(code).slice(0, 3)];
+          setWidgetError(hint || `Turnstile error ${code}. Check hostname and site key.`);
+          onExpire?.();
+        }}
+        options={{
+          theme: 'dark',
+          size: 'normal',
+          execution: 'execute',
+          appearance: 'always',
+          refreshExpired: 'auto',
+        }}
       />
+      {widgetError && <p className="form-message error turnstile-error">{widgetError}</p>}
+      <p className={`hint turnstile-hint ${token ? 'turnstile-ready' : ''}`}>
+        {hintByStatus[status] || hintByStatus.idle}
+      </p>
     </div>
   );
-}
+});
+
+export default TurnstileWidget;

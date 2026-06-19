@@ -1,32 +1,68 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import TurnstileWidget from './TurnstileWidget.jsx';
 import { isValidUsername } from '../utils/username.js';
 
 const MODES = {
   login: { title: 'Enter the Wilderness', submit: 'Log In' },
-  signup: { title: 'Register Anti', submit: 'Sign Up' },
+  signup: { title: 'Register Scout', submit: 'Sign Up' },
 };
 
 export default function AuthForm() {
   const { signUp, logIn } = useAuth();
+  const turnstileRef = useRef(null);
+  const pendingSubmit = useRef(false);
+
   const [mode, setMode] = useState('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [turnstileToken, setTurnstileToken] = useState('');
+  const [turnstileReset, setTurnstileReset] = useState(0);
+  const [captchaStatus, setCaptchaStatus] = useState('idle');
   const [message, setMessage] = useState({ type: '', text: '' });
   const [busy, setBusy] = useState(false);
 
-  const clearForm = () => {
-    setPassword('');
+  const resetCaptcha = useCallback(() => {
     setTurnstileToken('');
-    setMessage({ type: '', text: '' });
-  };
+    setCaptchaStatus('idle');
+    pendingSubmit.current = false;
+    setTurnstileReset((n) => n + 1);
+  }, []);
 
   const switchMode = (next) => {
     setMode(next);
-    clearForm();
+    setPassword('');
+    setMessage({ type: '', text: '' });
+    resetCaptcha();
   };
+
+  const runAuth = async (token) => {
+    setBusy(true);
+    setCaptchaStatus('ready');
+    const result =
+      mode === 'login'
+        ? await logIn(username, password, token)
+        : await signUp(username, password, token);
+    setBusy(false);
+    setCaptchaStatus('idle');
+
+    if (!result.ok) {
+      setMessage({ type: 'error', text: result.error || 'Request failed.' });
+      resetCaptcha();
+      return;
+    }
+  };
+
+  const handleToken = useCallback(
+    async (token) => {
+      setTurnstileToken(token);
+      if (!pendingSubmit.current || !token) return;
+      pendingSubmit.current = false;
+      await runAuth(token);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runAuth closes over current mode/credentials
+    [mode, username, password]
+  );
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -40,25 +76,29 @@ export default function AuthForm() {
       return;
     }
 
-    if (!turnstileToken) {
-      setMessage({ type: 'error', text: 'Complete the captcha first.' });
+    if (!password) {
+      setMessage({ type: 'error', text: 'Password is required.' });
       return;
     }
 
-    setBusy(true);
-    const result =
-      mode === 'login'
-        ? await logIn(username, password, turnstileToken)
-        : await signUp(username, password, turnstileToken);
-    setBusy(false);
+    if (busy || captchaStatus === 'verifying') return;
 
-    if (!result.ok) {
-      setMessage({ type: 'error', text: result.error || 'Request failed.' });
-      setTurnstileToken('');
-    }
+    pendingSubmit.current = true;
+    setCaptchaStatus('verifying');
+    setTurnstileToken('');
+    turnstileRef.current?.reset();
+    turnstileRef.current?.execute();
+  };
+
+  const handleCaptchaExpire = () => {
+    pendingSubmit.current = false;
+    setCaptchaStatus('idle');
+    if (busy) return;
+    setMessage({ type: 'error', text: 'Captcha expired. Click submit again.' });
   };
 
   const { title, submit } = MODES[mode];
+  const canSubmit = isValidUsername(username) && Boolean(password) && !busy;
 
   return (
     <div className="auth-shell">
@@ -90,14 +130,19 @@ export default function AuthForm() {
             />
           </label>
 
-          <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken('')} />
+          <TurnstileWidget
+            ref={turnstileRef}
+            token={turnstileToken}
+            status={captchaStatus}
+            resetSignal={turnstileReset}
+            onToken={handleToken}
+            onExpire={handleCaptchaExpire}
+          />
 
-          {message.text && (
-            <p className={`form-message ${message.type}`}>{message.text}</p>
-          )}
+          {message.text && <p className={`form-message ${message.type}`}>{message.text}</p>}
 
-          <button type="submit" className="btn btn-primary" disabled={busy || !turnstileToken}>
-            {busy ? 'Working…' : submit}
+          <button type="submit" className="btn btn-primary" disabled={!canSubmit}>
+            {busy ? 'Working…' : captchaStatus === 'verifying' ? 'Verify captcha…' : submit}
           </button>
         </form>
 
