@@ -165,7 +165,7 @@ export default function HomeView() {
                 <input
                   value={joinCode}
                   onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                  placeholder="ABC123"
+                  placeholder="AFC123"
                   maxLength={6}
                 />
               </label>
