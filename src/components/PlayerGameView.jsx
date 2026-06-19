@@ -111,7 +111,7 @@ export default function PlayerGameView({ demoGameId }) {
     return (
       <div className="app-shell">
         <section className="share-panel stone-panel">
-          <p className="form-message error">You were removed from this game.</p>
+          <p className="form-message error">You were removed from this game. c u in lumby</p>
           <Link to="/" className="btn btn-ghost">
             Back home
           </Link>
