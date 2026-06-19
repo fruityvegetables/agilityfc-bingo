@@ -5,7 +5,7 @@ import { isValidUsername } from '../utils/username.js';
 
 const MODES = {
   login: { title: 'Enter the Wilderness', submit: 'Log In' },
-  signup: { title: 'Register Scout', submit: 'Sign Up' },
+  signup: { title: 'Register Anti', submit: 'Sign Up' },
 };
 
 export default function AuthForm() {
